@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 // Helper to format seconds into Days/Hours
 const formatTTL = (seconds: number) => {
@@ -54,7 +54,7 @@ export default function AdminDashboard() {
       if (res.ok) {
         setStatus({ msg: `✅ Created: ${finalKeyName}`, type: 'success' });
         setCustomKey('');
-        fetchKeys(); // Refresh list automatically
+        fetchKeys(); // Refresh list
       } else {
         setStatus({ msg: `❌ Error: ${data.error}`, type: 'error' });
       }
@@ -70,13 +70,46 @@ export default function AdminDashboard() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ adminSecret: secret, licenseKey: keyName })
     });
-    fetchKeys(); // Refresh list
+    fetchKeys();
+  };
+
+  // --- NEW: Function to update Expiration ---
+  const updateExpiration = async (keyName: string) => {
+    const newDays = prompt(`Enter new duration (in days) for ${keyName}:`, "30");
+    if (newDays === null) return; // User cancelled
+
+    const daysNum = parseInt(newDays);
+    if (isNaN(daysNum) || daysNum <= 0) {
+        alert("Please enter a valid number of days.");
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                adminSecret: secret, 
+                licenseKey: keyName, 
+                newDays: daysNum 
+            })
+        });
+        
+        if (res.ok) {
+            alert(`✅ Updated ${keyName} to ${daysNum} days.`);
+            fetchKeys(); // Refresh list immediately
+        } else {
+            alert("❌ Failed to update key.");
+        }
+    } catch (e) {
+        alert("Network Error");
+    }
   };
 
   return (
     <div style={{ minHeight: '100vh', background: '#0f172a', color: '#f8fafc', padding: '2rem', fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
       
-      {/* --- GENERATOR CARD --- */}
+      {/* GENERATOR CARD */}
       <div style={{ background: '#1e293b', padding: '2rem', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', width: '100%', maxWidth: '500px', marginBottom: '2rem' }}>
         <h1 style={{ margin: '0 0 1.5rem 0', color: '#10b981', textAlign: 'center' }}>Markhor Admin</h1>
         <form onSubmit={generateKey} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -86,7 +119,7 @@ export default function AdminDashboard() {
           </div>
           <div style={{display:'flex', gap:'10px'}}>
              <div style={{flex:2}}>
-                <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px', color: '#94a3b8' }}>License Key (Optional)</label>
+                <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px', color: '#94a3b8' }}>License Key</label>
                 <input type="text" value={customKey} onChange={(e) => setCustomKey(e.target.value)} placeholder="Random if empty" style={inputStyle} />
              </div>
              <div style={{flex:1}}>
@@ -101,7 +134,7 @@ export default function AdminDashboard() {
         {status.msg && <div style={{ marginTop: '15px', padding: '10px', borderRadius: '6px', textAlign: 'center', background: status.type === 'success' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: status.type === 'success' ? '#10b981' : '#ef4444' }}>{status.msg}</div>}
       </div>
 
-      {/* --- LIST CARD --- */}
+      {/* LIST CARD */}
       <div style={{ background: '#1e293b', padding: '2rem', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', width: '100%', maxWidth: '800px' }}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem'}}>
             <h2 style={{ margin: 0, fontSize:'1.2rem' }}>Active Keys</h2>
@@ -116,7 +149,7 @@ export default function AdminDashboard() {
                     <tr style={{borderBottom:'1px solid #334155', color:'#94a3b8', fontSize:'0.9rem'}}>
                         <th style={{padding:'10px'}}>Key</th>
                         <th style={{padding:'10px'}}>Expires In</th>
-                        <th style={{padding:'10px', textAlign:'right'}}>Action</th>
+                        <th style={{padding:'10px', textAlign:'right'}}>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -126,7 +159,10 @@ export default function AdminDashboard() {
                             <td style={{padding:'12px', color: lic.ttl < 86400 ? '#f59e0b' : '#10b981'}}>
                                 {formatTTL(lic.ttl)}
                             </td>
-                            <td style={{padding:'12px', textAlign:'right'}}>
+                            <td style={{padding:'12px', textAlign:'right', display:'flex', gap:'8px', justifyContent:'flex-end'}}>
+                                {/* NEW EDIT BUTTON */}
+                                <button onClick={() => updateExpiration(lic.key)} style={{background:'transparent', border:'1px solid #3b82f6', color:'#3b82f6', padding:'4px 8px', borderRadius:'4px', cursor:'pointer'}}>Edit</button>
+                                
                                 <button onClick={() => revokeKey(lic.key)} style={{background:'transparent', border:'1px solid #ef4444', color:'#ef4444', padding:'4px 8px', borderRadius:'4px', cursor:'pointer'}}>Revoke</button>
                             </td>
                         </tr>
