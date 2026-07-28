@@ -15,22 +15,27 @@ export async function POST(req: Request) {
     }
 
     if (!licenseKey || !newDays) {
-        return NextResponse.json({ error: 'Missing data' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing data' }, { status: 400 });
     }
 
-    const seconds = Number(newDays) * 86400;
+    const now = Date.now();
+    const daysNum = Number(newDays);
+    const addMs = daysNum * 86400 * 1000;
+    
+    const currentExpiresAtVal = await redis.hget('licenses_db', licenseKey);
+    let currentExpiresAt = currentExpiresAtVal ? Number(currentExpiresAtVal) : 0;
+    const baseTime = (currentExpiresAt > now) ? currentExpiresAt : now;
+    const newExpiresAt = baseTime + addMs;
 
-    // Check if key exists first
-    const exists = await redis.exists(`license:${licenseKey}`);
-    if (!exists) {
-        return NextResponse.json({ error: 'Key not found' }, { status: 404 });
-    }
+    // Update persistent DB and legacy keys
+    await redis.hset('licenses_db', { [licenseKey]: newExpiresAt });
 
-    // Update the expiration time
-    await redis.expire(`license:${licenseKey}`, seconds);
+    const newTtlSec = Math.max(1, Math.floor((newExpiresAt - now) / 1000));
+    await redis.set(`license:${licenseKey}`, 'active', { ex: newTtlSec });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, newExpiresAt, newTtlSeconds: newTtlSec });
   } catch (error) {
+    console.error('Error updating key:', error);
     return NextResponse.json({ error: 'Server Error' }, { status: 500 });
   }
 }
