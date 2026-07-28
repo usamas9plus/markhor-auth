@@ -16,22 +16,38 @@ export async function POST(req: Request) {
       return NextResponse.json({ valid: false, message: 'Missing key' }, { status: 400 });
     }
 
-    // Check Redis database to see if key exists
-    const exists = await redis.exists(`license:${licenseKey}`);
+    const now = Date.now();
+    const dbExpiresAt = await redis.hget('licenses_db', licenseKey);
 
-    if (!exists) {
-      return NextResponse.json({ valid: false, message: 'Invalid Key' }, { status: 401 });
+    // If key found in persistent hash:
+    if (dbExpiresAt !== null && dbExpiresAt !== undefined) {
+      const expiresAtNum = Number(dbExpiresAt);
+
+      if (expiresAtNum === -1) {
+        return NextResponse.json({ valid: true, expiresInSeconds: -1 });
+      }
+
+      if (now > expiresAtNum) {
+        return NextResponse.json({ valid: false, message: 'License Expired' }, { status: 401 });
+      }
+
+      const expiresInSeconds = Math.max(0, Math.floor((expiresAtNum - now) / 1000));
+      return NextResponse.json({ valid: true, expiresInSeconds });
     }
 
-    // Get remaining time (TTL)
-    const ttl = await redis.ttl(`license:${licenseKey}`);
+    // Fallback: Check legacy key
+    const legacyExists = await redis.exists(`license:${licenseKey}`);
+    if (legacyExists) {
+      const ttl = await redis.ttl(`license:${licenseKey}`);
+      if (ttl === -2) {
+        return NextResponse.json({ valid: false, message: 'License Expired' }, { status: 401 });
+      }
+      return NextResponse.json({ valid: true, expiresInSeconds: ttl });
+    }
 
-    return NextResponse.json({ 
-      valid: true, 
-      expiresInSeconds: ttl 
-    });
-
+    return NextResponse.json({ valid: false, message: 'Invalid License Key' }, { status: 401 });
   } catch (error) {
-    return NextResponse.json({ valid: false, message: 'Server error' }, { status: 500 });
+    console.error('Error verifying key:', error);
+    return NextResponse.json({ valid: false, message: 'Server Error' }, { status: 500 });
   }
 }

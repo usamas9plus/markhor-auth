@@ -12,27 +12,38 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { adminSecret, licenseKey, days } = body;
 
-    // Security Check
     if (adminSecret !== process.env.ADMIN_SECRET) {
       return NextResponse.json({ error: 'Unauthorized: Wrong Secret' }, { status: 401 });
     }
 
-    if (!licenseKey || !days) {
-        return NextResponse.json({ error: 'Missing licenseKey or days' }, { status: 400 });
+    if (!licenseKey || days === undefined) {
+      return NextResponse.json({ error: 'Missing licenseKey or days' }, { status: 400 });
     }
 
-    // Calculate seconds (Days * 24 hours * 60 mins * 60 secs)
-    const seconds = days * 24 * 60 * 60;
+    const numDays = Number(days);
+    const now = Date.now();
+    // numDays -1 means permanent key
+    const expiresAt = numDays === -1 ? -1 : now + (numDays * 24 * 60 * 60 * 1000);
 
-    // Save to Database with expiration
-    await redis.set(`license:${licenseKey}`, 'active', { ex: seconds });
+    // Save to master persistent licenses_db hash
+    await redis.hset('licenses_db', { [licenseKey]: expiresAt });
+
+    // Also set legacy key for backwards compatibility
+    if (numDays !== -1) {
+      const seconds = numDays * 24 * 60 * 60;
+      await redis.set(`license:${licenseKey}`, 'active', { ex: seconds });
+    } else {
+      await redis.set(`license:${licenseKey}`, 'active');
+    }
 
     return NextResponse.json({ 
       success: true, 
       message: `Key ${licenseKey} created`,
-      expiresInDays: days 
+      expiresAt,
+      expiresInDays: numDays 
     });
   } catch (error) {
+    console.error('Error generating key:', error);
     return NextResponse.json({ error: 'Server Error' }, { status: 500 });
   }
 }

@@ -8,14 +8,24 @@ const redis = new Redis({
 });
 
 export async function POST(req: Request) {
-  const { adminSecret, licenseKey } = await req.json();
+  try {
+    const { adminSecret, licenseKey } = await req.json();
 
-  if (adminSecret !== process.env.ADMIN_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (adminSecret !== process.env.ADMIN_SECRET) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    if (!licenseKey) {
+      return NextResponse.json({ error: 'Missing licenseKey' }, { status: 400 });
+    }
+
+    // Delete from persistent hash and legacy keys
+    await redis.hdel('licenses_db', licenseKey);
+    await redis.del(`license:${licenseKey}`);
+
+    return NextResponse.json({ success: true, message: `Key ${licenseKey} revoked` });
+  } catch (error) {
+    console.error('Error revoking key:', error);
+    return NextResponse.json({ error: 'Server Error' }, { status: 500 });
   }
-
-  // Delete the key
-  await redis.del(`license:${licenseKey}`);
-
-  return NextResponse.json({ success: true });
 }
